@@ -31,6 +31,7 @@ async function run() {
       .db("beautyShop")
       .collection("allProducts");
     const cartsCollection = client.db("beautyShop").collection("carts");
+    const wishlistCollection = client.db("beautyShop").collection("wishlists");
 
     const usersCollection = client.db("beautyShop").collection("users");
 
@@ -60,6 +61,7 @@ async function run() {
 
     app.get("/details/:id", async (req, res) => {
       const id = req.params.id;
+      console.log(id)
       const query = { _id: new ObjectId(id) };
       const result = await allProductsCollection.findOne(query);
       res.send(result);
@@ -137,38 +139,48 @@ async function run() {
 
     app.get("/cart", async (req, res) => {
       const email = req.query.email;
-      const query = { "cartData.user": email };
-      const result = await cartsCollection.find(query).toArray();
+      const query = { email: email };
+      const options = { sort: { createdAt: 1 } };
+      const result = await cartsCollection.find(query,options).toArray();
       res.send(result);
     });
 
     app.post("/addToCart", async (req, res) => {
       const cartItem = req.body;
-      const zeroQuery = { "cartData.user": cartItem.cartData.user };
-      const zeroResult = await cartsCollection.findOne(zeroQuery);
-      if (zeroResult) {
-        const query = {
-          stall_id: cartItem.stall_id,
-          "cartData.user": cartItem.cartData.user,
-        };
-        const queryResult = await cartsCollection.findOne(query);
-
-        if (queryResult) {
-          const result = await cartsCollection.insertOne(cartItem);
-          return res.send(result);
-        } else {
-          return res.send({ result: false });
-        }
-      } else {
-        const result = await cartsCollection.insertOne(cartItem);
-        return res.send(result);
+      cartItem.createdAt = new Date();
+      const result = await cartsCollection.insertOne(cartItem);
+      const query = {email: cartItem.email, itemId: cartItem.itemId}
+      const checkWishList = await wishlistCollection.find(query).toArray();
+      if(checkWishList.length > 0){
+        await wishlistCollection.deleteMany(query)
       }
+      return res.send(result);
+    });
+    app.get("/wishlist", async (req, res) => {
+      const email = req.query.email;
+      const query = { email: email };
+      const options = { sort: { createdAt: 1 } };
+      const result = await wishlistCollection.find(query,options).toArray();
+      res.send(result);
+    });
+
+    app.post("/addToWishList", async (req, res) => {
+      const wishListItem = req.body;
+      wishListItem.createdAt = new Date();
+      const result = await wishlistCollection.insertOne(wishListItem);
+      return res.send(result);
     });
 
     app.delete("/removeCart/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await cartsCollection.deleteOne(query);
+      res.send(result);
+    });
+    app.delete("/removeWishList/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await wishlistCollection.deleteOne(query);
       res.send(result);
     });
 
@@ -202,22 +214,31 @@ async function run() {
 
     app.put("/manageUsers", async (req, res) => {
       const email = req.query.email;
-      const query = { email: email, role: "admin" };
-      const result = await usersCollection.findOne(query);
-      if (result) {
-        return res.send({ status: false });
+      const query = { email: email};
+      const user = await usersCollection.findOne(query);
+      if (user.role === "customer") {
+        const updatetoseller = await usersCollection.updateOne(
+          { email: email },
+          { $set: { role: "seller" } }
+        );
+        return res.send({ status: true, updatetoseller });
+      }else if(user.role === "seller"){
+        const updatetocustomer = await usersCollection.updateOne(
+          { email: email },
+          { $set: { role: "customer" } }
+        );
+        return res.send({ status: true, updatetocustomer });
+      }else{
+        res.send({ status: false });
       }
-      const makeAdmin = await usersCollection.updateOne(
-        { email: email },
-        { $set: { role: "admin" } }
-      );
-      res.send({ status: true, result: makeAdmin });
+    
+      
     });
 
     app.delete("/manageUsers", async (req, res) => {
       const email = req.query.email;
       const deleteuser = await usersCollection.deleteOne({ email: email });
-      const deletecarts = await cartsCollection.deleteMany({ user: email });
+      const deletecarts = await cartsCollection.deleteMany({ email: email });
       res.send({ deletecarts, deleteuser, status: true });
     });
 
@@ -246,6 +267,11 @@ async function run() {
       const result = await allProductsCollection.find(query).toArray();
       res.send(result);
     });
+
+    app.get('/allitems', async (req, res) => {
+      const allItems = await allProductsCollection.find().toArray();
+      res.send(allItems);
+    })
 
     app.delete("/deleteItem/:id", async (req, res) => {
       const id = req.params.id;
